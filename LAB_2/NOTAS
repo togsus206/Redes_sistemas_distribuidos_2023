@@ -1,0 +1,6 @@
+127.0.0.1 es la dirección de loopback (también conocida como localhost).
+0.0.0.0 es una metadirección no enrutable que se usa para designar un objetivo no válido, desconocido o no aplicable (un marcador de posición "sin dirección en particular").
+En el contexto de una entrada de ruta, generalmente significa la ruta predeterminada.
+
+En el contexto de los servidores, 0.0.0.0 significa todas las direcciones IPv4 en la máquina local . Si un host tiene dos direcciones IP, 192.168.1.1 y 10.1.2.1, y un servidor que se ejecuta en el host escucha en 0.0.0.0, se podrá acceder a él en ambas IP.
+
