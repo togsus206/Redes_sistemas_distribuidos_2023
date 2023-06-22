@@ -105,6 +105,76 @@ en el caso 2 tenemos un problema de control de congestion, el trafico intermedio
 
 ## TAREA DISEÑO ##
 
+### Explicacion de como se maneja el tema de control de congestion y flujo:
+
+## Control de Flujo
+
+Cuando la utilizacion del buffer del receptor es mayor a 96% (Fijado con la variable EMERGENCY_PERCENT_BUFF), se envian unos paquetes de emergencia de flujo por la queue que se usa como canal de retroalimentacion.
+Cuando el emisor recibe este mensaje, lo que hace es introducir un retardo (acumulable) en el envio de los paquetes (FLOW_DELAY_RATE) durante un tiempo especifico (FLOW_TIMER).
+(Este FLOW_TIMER se reestablece cada vez que llega un mensaje de emergencia de flujo).
+
+## Control de Congestion
+
+El emisor lleva una cuenta de los paquetes que le ha enviado al receptor, y de igual forma el receptor lleva una cuenta de los paquetes recibidos por el emisor.
+Cada un tiempo (STATUS_PKT_TIMER) el receptor envia un paquete de control con su tamaño de buffer, paquetes recibidos y la utilizacion en cantidad de paquetes.
+Entonces el emisor al recibir el paquete de control y calcula la diferencia entre paquetes enviados y recibidos por el receptor(gracias al paquete de control).
+Si esta diferencia es mayor a 85 paquetes (CONGESTION_PKTS_DIFF_TOLERANCE), se inicializa un temporizador de congestion y se agrega un retardo acumulable a la emision de paquetes.
+EL temporizador de congestion se reestablece si llega otro paquete de control.
+
+Tambien existe un mecanismo de seguridad que elimina el retardo introducido por el control de flujo cuando se detecta que el receptor tiene un buffer con menos de
+MIN_FAILSAFE_BUFFERSIZE_FLOW (45 paquetes) indicado por el paquete de control. Esto es por si se calibra mal el temporizador o el retardo acumulable.
+
+
+*** Introduccion del algoritmo ***
+
+### NodeTx: ###
+ Este módulo es un nodo de transmisión en la red. Contiene un generador (gen) y un módulo de transmisión (transTx). El generador crea paquetes y los envía al módulo de transmisión para su posterior procesamiento. El nodo de transmisión tiene una puerta de salida (toOut) que está conectada a otras partes de la red.
+
+ El método handleMessage(cMessage *msg) se llama cuando se recibe un mensaje. Este método implementa la lógica de transmisión y gestión de la congestión:
+
+        # Si el mensaje tiene getKind() == 1, se trata de un paquete de flujo de emergencia y se actualiza el retraso de flujo y el temporizador de flujo.
+
+        # Si el mensaje tiene getKind() == 2, se trata de un paquete de retroalimentación y se realizan varias operaciones, como la comprobación de la diferencia entre los paquetes enviados y los paquetes recibidos, el restablecimiento del retraso de flujo en caso de que el tamaño del búfer sea demasiado pequeño y la detección de posible congestión.
+
+        # Si el mensaje tiene getKind() == 0, se trata de un paquete de datos para transmitir. Se realizan operaciones adicionales como el restablecimiento de los temporizadores de congestión y flujo, la comprobación del tamaño del búfer, la inserción del paquete en el búfer, la programación del evento de finalización del servicio si no está programado y el envío del paquete.
+
+### NodeRx: ### 
+Este módulo es un nodo de recepción en la red. Contiene un módulo de recepción (transRx) y un destino final (sink). Los paquetes recibidos por el módulo de recepción se envían al destino final para su procesamiento. Al igual que el nodo de transmisión, también tiene una puerta de entrada y salida para conectarse a otros módulos de la red.
+
+El método handleMessage(cMessage *msg) se llama cuando se recibe un mensaje. Este método implementa la lógica de recepción y el envío de retroalimentación y paquetes de control.
+
+    # Si el mensaje tiene getKind() == 0, se trata de un paquete de datos recibido. Se realizan operaciones como la inserción del paquete en el búfer, la programación del evento de finalización del servicio si no está programado y el envío del paquete al módulo de la aplicación.
+
+    # Se crea un objeto FeedbackPkt para enviar retroalimentación y paquetes de control. Se configura el tipo de paquete según las condiciones del búfer y se envía al módulo de salida correspondiente.
+
+
+**Antecedentes:**
+Inicialmente, la simulación contaba con los módulos `TransportTx` y `TransportRx` que se encargaban del envío y recepción de paquetes respectivamente. Sin embargo, no existía una comunicación directa entre estos módulos para intercambiar información sobre el estado de la red. Esto limitaba la capacidad del sistema para adaptarse y tomar decisiones basadas en el estado actual de la transmisión.
+
+### Implementado
+
+Se ha implementado una funcionalidad de retorno de retroalimentación desde el módulo receptor (`TransportRx`) hacia el módulo transmisor (`TransportTx`). Esta adición permite mejorar el funcionamiento global de la simulación y optimizar el flujo de paquetes a través de la red.
+
+
+**Objetivo:**
+El objetivo principal de esta mejora era implementar un mecanismo de retroalimentación entre los módulos `TransportTx` y `TransportRx` para intercambiar información vital sobre el estado de la red. Con esta información, el módulo transmisor podría ajustar su comportamiento y tomar decisiones adecuadas para mejorar el rendimiento general del sistema.
+
+**Implementación:**
+Para lograrlo se introdujo la clase de mensaje `FeedbackPkt` que actúa como un paquete de retroalimentación. Esta clase de mensaje contiene dos tipos de información clave: `pktReceived_info` y `bufferSize_info`. El primero indica la cantidad de paquetes recibidos por el módulo receptor (`TransportRx`), mientras que el segundo indica el tamaño del búfer en el receptor.
+
+Se agregaron secciones de código en los módulos `TransportTx` y `TransportRx` para enviar y recibir paquetes de retroalimentación. En el módulo `TransportRx`, se verificó periódicamente el estado de la red y se generaron paquetes de retroalimentación en función de ciertos criterios, como el nivel de ocupación del búfer. Estos paquetes de retroalimentación se enviaron al módulo `TransportTx` a través de la conexión establecida.
+
+En el módulo `TransportTx`, se implementó la lógica para procesar los paquetes de retroalimentación recibidos. Estos paquetes proporcionaban información valiosa sobre el estado de la red, como posibles congestiones o diferencias entre los paquetes enviados y recibidos. Basándose en esta información, el módulo `TransportTx` tomaba decisiones inteligentes para ajustar la velocidad de envío de paquetes o detectar posibles problemas en la red.
+
+**Beneficios y Conclusiones:**
+La adición del retorno de retroalimentación desde el módulo `TransportRx` al módulo `TransportTx` ha mejorado significativamente el funcionamiento de la simulación. Al recibir información en tiempo real sobre el estado de la red, el módulo transmisor puede ajustar su comport
+
+
+
+
+-----------------------------------------------------------------------------------------------------------
+
+
 Para esta seccion solo nos vamos a concentrar en los casos que causan mas problemas de flujo y congestion, estos son respectivamente el caso 1 Exponential(0.1) y caso 2 Exponential (0.1)
 
 
